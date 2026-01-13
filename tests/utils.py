@@ -1,6 +1,27 @@
 import os
 import sys
+from contextlib import contextmanager
 from multiprocessing import Manager, get_context
+
+
+@contextmanager
+def suppress_output(stdout=True, stderr=True):
+    with open(os.devnull, "w") as devnull:
+        old_stdout = sys.stdout if stdout else None
+        old_stderr = sys.stderr if stderr else None
+
+        if stdout:
+            sys.stdout = devnull
+        if stderr:
+            sys.stderr = devnull
+
+        try:
+            yield
+        finally:
+            if stdout:
+                sys.stdout = old_stdout
+            if stderr:
+                sys.stderr = old_stderr
 
 
 def _worker_process(func_name, module_name, config, queue):

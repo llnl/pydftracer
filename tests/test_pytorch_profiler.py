@@ -11,7 +11,7 @@ import torchvision.models as models
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 
-from .utils import run_test_in_spawn_process
+from .utils import run_test_in_spawn_process, suppress_output
 
 
 def cleanup_test_directory(test_base_dir, test_name):
@@ -559,12 +559,13 @@ def run_torchvision_cifar10_with_io_test(test_config):
 
         try:
             # Try to use cached CIFAR-10 data first, then download if needed
-            train_dataset = TracedCIFAR10Dataset(
-                root=cifar10_data_dir,
-                train=True,
-                download=True,  # Download if not present
-                transform=transform,
-            )
+            with suppress_output():
+                train_dataset = TracedCIFAR10Dataset(
+                    root=cifar10_data_dir,
+                    train=True,
+                    download=True,  # Download if not present
+                    transform=transform,
+                )
             print(
                 f"Successfully loaded CIFAR-10 dataset with {len(train_dataset)} samples"
             )
