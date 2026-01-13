@@ -44,10 +44,3 @@ Profiler Protocol
 .. autoclass:: dftracer.python.common.ProfilerProtocol
    :members:
    :undoc-members:
-
-Functions
----------
-
-.. autofunction:: dftracer.python.initialize
-.. autofunction:: dftracer.python.finalize
-.. autofunction:: dftracer.python.get_time
