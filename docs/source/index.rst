@@ -15,6 +15,7 @@ Features
 - **Type-Safe Decorators**: Fully type-checked with mypy, preserves function signatures
 - **Function Decorators**: Simple ``@dft_fn`` decorator for tracing Python functions
 - **AI/ML Support**: Specialized tracing for AI/ML workflows
+- **PyTorch Integration**: Capture PyTorch profiler events to DFTracer traces
 - **PyTorch Dynamo Integration**: Wrapper of PyTorch's Dynamo
 - **Automatic I/O Tracing**: Transparent tracing of I/O operations when enabled
 - **Debugging Tools**: Built-in debugging utilities
@@ -37,6 +38,7 @@ Features
    examples
    type_safety
    ai_ml_guide
+   pytorch
    dynamo_guide
    developers
    api/index
