@@ -4,31 +4,37 @@ from typing import Any, Callable, List, Optional, Union, overload
 from dftracer.python.ai_common import DFTracerAI, dftracer
 from dftracer.python.common import DFTRACER_ENABLE, P, R, TagDType, TagType, TagValue
 
-try:
-    import torch
 
-    TORCH_AVAILABLE = True
-except ImportError:
-    TORCH_AVAILABLE = False
-    torch = None  # type: ignore
+def _import_torch() -> Any:
+    try:
+        import torch
+    except ImportError as exc:
+        raise RuntimeError(
+            "PyTorch is not available. Install pydftracer[dynamo] to use Dynamo integration."
+        ) from exc
+    return torch
 
-if TORCH_AVAILABLE:
+
+def _import_autograd_backend() -> Any:
     try:
         from functorch.compile import make_boxed_func
 
         # Alpha feature from: https://docs.pytorch.org/docs/stable/torch.compiler_custom_backends.html#custom-backends-after-aotautograd
         from torch._dynamo.backends.common import aot_autograd
-    except ImportError:
-        if DFTRACER_ENABLE:
-            raise RuntimeError(
-                "DFTracer dynamo requires PyTorch and functorch to be installed"
-            )
-        else:
-            make_boxed_func = None  # type: ignore
-            aot_autograd = None  # type: ignore
-else:
-    make_boxed_func = None  # type: ignore
-    aot_autograd = None  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError(
+            "AOT autograd is not available. Install functorch/torch dependencies or set autograd=False."
+        ) from exc
+    return make_boxed_func, aot_autograd
+
+
+def _is_grad_enabled() -> bool:
+    try:
+        torch = _import_torch()
+    except RuntimeError:
+        return False
+    return bool(torch.is_grad_enabled())
+
 
 CAT_DYNAMO = "dynamo"
 
@@ -88,9 +94,7 @@ class Dynamo(DFTracerAI):
 
     def _record_time_start(self, op_name: str, op_type: str, target: str) -> None:
         timestamp_us = self.get_time()
-        grad_enabled = False
-        if TORCH_AVAILABLE:
-            grad_enabled = torch.is_grad_enabled()
+        grad_enabled = _is_grad_enabled()
         record = CallStackRecord(
             op_name=op_name,
             op_type=op_type,
@@ -175,19 +179,20 @@ class Dynamo(DFTracerAI):
         - Uses PyTorch Dynamo to add nodes before and after each operation
         - The nodes are run before and after each operation -> providing detailed timing information
         """
-        if not TORCH_AVAILABLE:
-            raise RuntimeError(
-                "PyTorch is not available. Install PyTorch to use Dynamo integration."
-            )
-
         if not (DFTRACER_ENABLE and self.enable):  # type: ignore[truthy-function]
-            return f_py  # type: ignore
+            if callable(f_py):
+                return f_py
 
-        if autograd and (aot_autograd is None or make_boxed_func is None):
-            raise RuntimeError(
-                "AOT autograd is not available. Either install required dependencies "
-                "or set autograd=False"
-            )
+            def _passthrough(func: Callable[P, R]) -> Callable[P, R]:
+                return func
+
+            return _passthrough
+
+        torch = _import_torch()
+        make_boxed_func = None
+        aot_autograd = None
+        if autograd:
+            make_boxed_func, aot_autograd = _import_autograd_backend()
 
         def _decorator(func: Callable[P, R]) -> Callable[P, R]:
             def enhanced_trace_wrapper(gm: Any, example: Any, **kwargs: Any) -> Any:
@@ -251,14 +256,19 @@ def create_backend(
         >>> model = torch.nn.Linear(10, 10)
         >>> compiled_model = torch.compile(model, backend=backend)
     """
-    if not TORCH_AVAILABLE:
-        raise RuntimeError("PyTorch is not available")
+    if not (DFTRACER_ENABLE and enable):
 
-    if autograd and (aot_autograd is None or make_boxed_func is None):
-        raise RuntimeError(
-            "AOT autograd is not available. Either install required dependencies "
-            "or set autograd=False"
-        )
+        def backend(gm: Any, _example_inputs: Any, **_kwargs: Any) -> Any:
+            """Backend passthrough when tracing is disabled."""
+            return gm.forward
+
+        return backend
+
+    _import_torch()
+    make_boxed_func = None
+    aot_autograd = None
+    if autograd:
+        make_boxed_func, aot_autograd = _import_autograd_backend()
 
     tracer = Dynamo(
         name=name,
