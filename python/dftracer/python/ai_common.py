@@ -531,6 +531,7 @@ class ProfileCategory(StringEnum):
     DEVICE = auto()
     CHECKPOINT = auto()
     PIPELINE = auto()
+    OTHER = auto()
 
 
 class ComputeEvent(StringEnum):
@@ -579,6 +580,67 @@ class CheckpointEvent(StringEnum):
     RESTART = auto()
 
 
+class OtherEvent(StringEnum):
+    LOG = auto()
+
+
+class IOEvent(StringEnum):
+    OPEN = auto()
+    READ = auto()
+    WRITE = auto()
+    CLOSE = auto()
+
+
+class IO(DFTracerAI):
+    """Tracer for I/O operations on a data object (open, read, write, close).
+
+    Accessible as ``data.io`` or ``checkpoint.io``. Each operation maps to a
+    dedicated child tracer so that load/open, read, write, and delete/close
+    phases are captured as separate, named events in the trace.
+
+    Events:
+        open  -- opening or loading a data object (e.g. file open, dataset load)
+        read  -- reading data from an already-open object
+        write -- writing data to an object
+        close -- closing or deleting a data object
+    """
+
+    open: DFTracerAI
+    read: DFTracerAI
+    write: DFTracerAI
+    close: DFTracerAI
+
+    def __init__(
+        self,
+        *,
+        cat: str,
+        parent_name: str,
+        epoch: Optional[int] = None,
+        step: Optional[int] = None,
+        image_idx: Optional[int] = None,
+        image_size: Optional[Any] = None,
+        enable: bool = True,
+    ):
+        io_name = f"{parent_name}{CTX_SEPARATOR}io"
+        super().__init__(
+            cat=cat,
+            name=io_name,
+            epoch=epoch,
+            step=step,
+            image_idx=image_idx,
+            image_size=image_size,
+            enable=enable,
+        )
+        self.create_children(
+            {
+                "open": f"{io_name}{CTX_SEPARATOR}{IOEvent.OPEN}",
+                "read": f"{io_name}{CTX_SEPARATOR}{IOEvent.READ}",
+                "write": f"{io_name}{CTX_SEPARATOR}{IOEvent.WRITE}",
+                "close": f"{io_name}{CTX_SEPARATOR}{IOEvent.CLOSE}",
+            }
+        )
+
+
 class Compute(DFTracerAI):
     forward: DFTracerAI
     backward: DFTracerAI
@@ -614,6 +676,7 @@ class Compute(DFTracerAI):
 class Data(DFTracerAI):
     preprocess: DFTracerAI
     item: DFTracerAI
+    io: IO
 
     def __init__(
         self,
@@ -638,6 +701,16 @@ class Data(DFTracerAI):
                 "item": DataEvent.ITEM,
             }
         )
+        self.io = IO(
+            cat=ProfileCategory.DATA,
+            parent_name=str(ProfileCategory.DATA),
+            epoch=epoch,
+            step=step,
+            image_idx=image_idx,
+            image_size=image_size,
+            enable=enable,
+        )
+        self._children["io"] = self.io
 
 
 class DataLoader(DFTracerAI):
@@ -744,6 +817,7 @@ class Device(DFTracerAI):
 class Checkpoint(DFTracerAI):
     capture: DFTracerAI
     restart: DFTracerAI
+    io: IO
 
     def __init__(
         self,
@@ -768,6 +842,16 @@ class Checkpoint(DFTracerAI):
                 "restart": CheckpointEvent.RESTART,
             }
         )
+        self.io = IO(
+            cat=ProfileCategory.CHECKPOINT,
+            parent_name=str(ProfileCategory.CHECKPOINT),
+            epoch=epoch,
+            step=step,
+            image_idx=image_idx,
+            image_size=image_size,
+            enable=enable,
+        )
+        self._children["io"] = self.io
 
 
 class Pipeline(DFTracerAI):
@@ -803,6 +887,56 @@ class Pipeline(DFTracerAI):
         )
 
 
+class Other(DFTracerAI):
+    """Tracer for operations that fall outside standard AI/ML categories.
+
+    Use this to annotate any I/O or logging activity that does not fit into
+    the ``data``, ``dataloader``, or ``checkpoint`` categories — for example,
+    API calls to external services, application-level log writes, or ad-hoc
+    file reads that are not part of the training data pipeline.
+
+    Sub-tracers:
+        io  -- file/stream I/O operations (open, read, write, close)
+        log -- logging or API call operations
+    """
+
+    io: IO
+    log: DFTracerAI
+
+    def __init__(
+        self,
+        epoch: Optional[int] = None,
+        step: Optional[int] = None,
+        image_idx: Optional[int] = None,
+        image_size: Optional[Any] = None,
+        enable: bool = True,
+    ):
+        super().__init__(
+            cat=ProfileCategory.OTHER,
+            name=ProfileCategory.OTHER,
+            epoch=epoch,
+            step=step,
+            image_idx=image_idx,
+            image_size=image_size,
+            enable=enable,
+        )
+        self.create_children(
+            {
+                "log": f"{ProfileCategory.OTHER}{CTX_SEPARATOR}{OtherEvent.LOG}",
+            }
+        )
+        self.io = IO(
+            cat=ProfileCategory.OTHER,
+            parent_name=str(ProfileCategory.OTHER),
+            epoch=epoch,
+            step=step,
+            image_idx=image_idx,
+            image_size=image_size,
+            enable=enable,
+        )
+        self._children["io"] = self.io
+
+
 # fmt: off
 class AI(DFTracerAI):
     compute: Compute
@@ -812,6 +946,7 @@ class AI(DFTracerAI):
     device: Device
     checkpoint: Checkpoint
     pipeline: Pipeline
+    other: Other
 
     def __init__(
         self,
@@ -829,6 +964,7 @@ class AI(DFTracerAI):
         self.device = Device(epoch=epoch, step=step, image_idx=image_idx, image_size=image_size, enable=enable)
         self.checkpoint = Checkpoint(epoch=epoch, step=step, image_idx=image_idx, image_size=image_size, enable=enable)
         self.pipeline = Pipeline(epoch=epoch, step=step, image_idx=image_idx, image_size=image_size, enable=enable)
+        self.other = Other(epoch=epoch, step=step, image_idx=image_idx, image_size=image_size, enable=enable)
 
         self._children = {
             "compute": self.compute,
@@ -838,5 +974,6 @@ class AI(DFTracerAI):
             "device": self.device,
             "checkpoint": self.checkpoint,
             "pipeline": self.pipeline,
+            "other": self.other,
         }
 # fmt: on

@@ -31,7 +31,9 @@ def trace_handler(profiler_result: Any) -> None:
             event.device_memory_usage, TagDType.INT, TagType.KEY
         ).value()
         int_args["input_size"] = TagValue(
-            sum(event.input_shapes), TagDType.INT, TagType.KEY
+            sum(len(s) for s in event.input_shapes) if event.input_shapes else 0,
+            TagDType.INT,
+            TagType.KEY,
         ).value()
         float_args = {}
         float_args["total_cpu_percent"] = TagValue(

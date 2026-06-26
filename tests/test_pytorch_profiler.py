@@ -14,6 +14,13 @@ from torch.utils.data import DataLoader
 from .utils import run_test_in_spawn_process, suppress_output
 
 
+def get_profiler_activities(profiler_activity, device):
+    activities = [profiler_activity.CPU]
+    if device.type == "cuda":
+        activities.append(profiler_activity.CUDA)
+    return activities
+
+
 def cleanup_test_directory(test_base_dir, test_name):
     """
     Clean up test output directory after successful test completion.
@@ -528,7 +535,7 @@ def run_torchvision_cifar10_with_io_test(test_config):
     print(f"Data directory: {data_dir}")
 
     # Use the same pattern as test_dftracer.py - data_dir as second parameter
-    df_logger = dftracer.initialize_log(log_file, None, -1)
+    df_logger = dftracer.initialize_log(log_file, data_dir, -1)
 
     try:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -650,12 +657,7 @@ def run_torchvision_cifar10_with_io_test(test_config):
 
         try:
             with profile(
-                activities=[
-                    ProfilerActivity.CPU,
-                    ProfilerActivity.CUDA
-                    if device.type == "cuda"
-                    else ProfilerActivity.CPU,
-                ],
+                activities=get_profiler_activities(ProfilerActivity, device),
                 schedule=profiler_schedule,
                 on_trace_ready=trace_handler,
                 profile_memory=True,
@@ -742,7 +744,7 @@ def run_single_pytorch_profiler_with_io_test(test_config):
     print(f"Data directory: {data_dir}")
 
     # Use the same pattern as test_dftracer.py - data_dir as second parameter
-    df_logger = dftracer.initialize_log(log_file, None, -1)
+    df_logger = dftracer.initialize_log(log_file, data_dir, -1)
 
     try:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -879,12 +881,7 @@ def run_single_pytorch_profiler_with_io_test(test_config):
 
         try:
             with profile(
-                activities=[
-                    ProfilerActivity.CPU,
-                    ProfilerActivity.CUDA
-                    if device.type == "cuda"
-                    else ProfilerActivity.CPU,
-                ],
+                activities=get_profiler_activities(ProfilerActivity, device),
                 schedule=profiler_schedule,
                 on_trace_ready=trace_handler,
                 profile_memory=True,
@@ -974,7 +971,7 @@ def run_image_folder_with_io_test(test_config):
     print(f"Data directory: {data_dir}")
 
     # Use the same pattern as test_dftracer.py - data_dir as second parameter
-    df_logger = dftracer.initialize_log(log_file, None, -1)
+    df_logger = dftracer.initialize_log(log_file, data_dir, -1)
 
     try:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -1114,12 +1111,7 @@ def run_image_folder_with_io_test(test_config):
 
         try:
             with profile(
-                activities=[
-                    ProfilerActivity.CPU,
-                    ProfilerActivity.CUDA
-                    if device.type == "cuda"
-                    else ProfilerActivity.CPU,
-                ],
+                activities=get_profiler_activities(ProfilerActivity, device),
                 schedule=profiler_schedule,
                 on_trace_ready=trace_handler,
                 profile_memory=True,
@@ -1206,7 +1198,7 @@ def run_single_pytorch_profiler_test(test_config):
     print(f"Data directory: {data_dir}")
 
     # Use the same pattern as test_dftracer.py - data_dir as second parameter
-    df_logger = dftracer.initialize_log(log_file, None, -1)
+    df_logger = dftracer.initialize_log(log_file, data_dir, -1)
 
     try:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -1275,12 +1267,7 @@ def run_single_pytorch_profiler_test(test_config):
 
         try:
             with profile(
-                activities=[
-                    ProfilerActivity.CPU,
-                    ProfilerActivity.CUDA
-                    if device.type == "cuda"
-                    else ProfilerActivity.CPU,
-                ],
+                activities=get_profiler_activities(ProfilerActivity, device),
                 schedule=profiler_schedule,
                 on_trace_ready=trace_handler,
                 profile_memory=True,
@@ -1344,6 +1331,7 @@ class TestPyTorchProfiler:
                 "env": {
                     "DFTRACER_ENABLE": "1",
                     "DFTRACER_INC_METADATA": "1",
+                    "DFTRACER_TRACE_COMPRESSION": "0",
                 },
             },
             {
@@ -1355,6 +1343,7 @@ class TestPyTorchProfiler:
                 "env": {
                     "DFTRACER_ENABLE": "1",
                     "DFTRACER_INC_METADATA": "1",
+                    "DFTRACER_TRACE_COMPRESSION": "0",
                 },
             },
         ],

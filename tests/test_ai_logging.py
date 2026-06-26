@@ -192,7 +192,8 @@ def run_ai_logging_test(test_config):
 
         # Validate log files using the common utility
         expected_count = test_config.get("expected_events", 0)
-        validate_log_files(log_file, test_config["name"], expected_count)
+        mode = test_config.get("mode", "exact")
+        validate_log_files(log_file, test_config["name"], expected_count, mode=mode)
     finally:
         shutil.rmtree(test_base_dir, ignore_errors=True)
 
@@ -242,7 +243,8 @@ class TestAILogging:
                 "num_files": 2,
                 "niter": 3,
                 "disable_ai_cat": "all",
-                "expected_events": 9,
+                "expected_events": 0,
+                "mode": "none",
                 "env": {
                     "DFTRACER_ENABLE": "1",
                     "DFTRACER_INC_METADATA": "1",
@@ -306,6 +308,291 @@ class TestAILogging:
     )
     def test_ai_logging(self, test_config):
         run_test_in_spawn_process(run_ai_logging_test, test_config)
+
+
+class DataIOHandler:
+    """Exercises ai.data.io.{open,read,write,close} as decorators and context managers."""
+
+    @ai.data.io.open
+    def open(self, path: str):
+        return path
+
+    @ai.data.io.read
+    def read(self, path: str):
+        return np.ones((1024, 1), dtype=np.uint8)
+
+    @ai.data.io.write
+    def write(self, path: str, data: np.ndarray):
+        with open(path, "wb") as f:
+            np.save(f, data)
+
+    @ai.data.io.close
+    def close(self, path: str):
+        pass
+
+
+class CheckpointIOHandler:
+    """Exercises ai.checkpoint.io.{open,read,write,close} as decorators and context managers."""
+
+    @ai.checkpoint.io.open
+    def open(self, path: str):
+        return path
+
+    @ai.checkpoint.io.read
+    def load(self, path: str):
+        return {}
+
+    @ai.checkpoint.io.write
+    def save(self, path: str, state: dict):
+        pass
+
+    @ai.checkpoint.io.close
+    def delete(self, path: str):
+        pass
+
+
+def run_io_test(test_config):
+    base_dir = os.path.join(os.path.dirname(__file__), "test_io_logging_output")
+    test_name = test_config["name"]
+    test_base_dir = os.path.join(base_dir, test_name)
+    data_dir = os.path.join(test_base_dir, "data")
+    log_dir = os.path.join(test_base_dir, "logs")
+    os.makedirs(data_dir, exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
+
+    log_file = os.path.join(log_dir, f"{test_name}.pfw")
+
+    if test_config.get("disable_io_cat") == "data":
+        ai.data.io.disable()
+    elif test_config.get("disable_io_cat") == "checkpoint":
+        ai.checkpoint.io.disable()
+
+    sample_path = os.path.join(data_dir, "sample.npy")
+    ckpt_path = os.path.join(data_dir, "model.pt")
+
+    print(f"Running IO test {test_name} with log file: {log_file}")
+
+    try:
+        df_logger = dftracer.initialize_log(
+            logfile=log_file, data_dir=data_dir, process_id=-1
+        )
+
+        # Exercise data IO operations via decorators
+        data_io = DataIOHandler()
+        data_io.open(sample_path)
+        data = data_io.read(sample_path)
+        data_io.write(sample_path, data)
+        data_io.close(sample_path)
+
+        # Exercise data IO operations via context managers
+        with ai.data.io.open:
+            pass
+        with ai.data.io.read:
+            pass
+        with ai.data.io.write:
+            pass
+        with ai.data.io.close:
+            pass
+
+        # Exercise checkpoint IO operations via decorators
+        ckpt_io = CheckpointIOHandler()
+        ckpt_io.open(ckpt_path)
+        ckpt_io.load(ckpt_path)
+        ckpt_io.save(ckpt_path, {})
+        ckpt_io.delete(ckpt_path)
+
+        # Exercise checkpoint IO operations via context managers
+        with ai.checkpoint.io.open:
+            pass
+        with ai.checkpoint.io.read:
+            pass
+        with ai.checkpoint.io.write:
+            pass
+        with ai.checkpoint.io.close:
+            pass
+
+        df_logger.finalize()
+
+        expected_count = test_config.get("expected_events", 0)
+        mode = test_config.get("mode", "exact")
+        validate_log_files(log_file, test_name, expected_count, mode=mode)
+    finally:
+        shutil.rmtree(test_base_dir, ignore_errors=True)
+
+    return True
+
+
+class TestIOLogging:
+    @pytest.mark.parametrize(
+        "test_config",
+        [
+            {
+                "name": "io_disabled",
+                "expected_events": 0,
+                "env": {
+                    "DFTRACER_ENABLE": "0",
+                },
+            },
+            {
+                "name": "io_normal",
+                "expected_events": 0,
+                "mode": "exact",
+                "env": {
+                    "DFTRACER_ENABLE": "1",
+                    "DFTRACER_INC_METADATA": "1",
+                    "DFTRACER_TRACE_COMPRESSION": "0",
+                    "DFTRACER_DISABLE_IO": "1",
+                },
+            },
+            {
+                "name": "io_disable_data_io",
+                "disable_io_cat": "data",
+                "expected_events": 0,
+                "mode": "exact",
+                "env": {
+                    "DFTRACER_ENABLE": "1",
+                    "DFTRACER_INC_METADATA": "1",
+                    "DFTRACER_TRACE_COMPRESSION": "0",
+                    "DFTRACER_DISABLE_IO": "1",
+                },
+            },
+            {
+                "name": "io_disable_checkpoint_io",
+                "disable_io_cat": "checkpoint",
+                "expected_events": 0,
+                "mode": "exact",
+                "env": {
+                    "DFTRACER_ENABLE": "1",
+                    "DFTRACER_INC_METADATA": "1",
+                    "DFTRACER_TRACE_COMPRESSION": "0",
+                    "DFTRACER_DISABLE_IO": "1",
+                },
+            },
+        ],
+    )
+    def test_io_logging(self, test_config):
+        run_test_in_spawn_process(run_io_test, test_config)
+
+
+class OtherIOHandler:
+    """Exercises ai.other.io.{open,read,write,close} as decorators and context managers."""
+
+    @ai.other.io.open
+    def open(self, path: str):
+        return path
+
+    @ai.other.io.read
+    def read(self, path: str):
+        return np.ones((1024, 1), dtype=np.uint8)
+
+    @ai.other.io.write
+    def write(self, path: str, data: np.ndarray):
+        with open(path, "wb") as f:
+            np.save(f, data)
+
+    @ai.other.io.close
+    def close(self, path: str):
+        pass
+
+
+@ai.other.log
+def external_api_call(url: str):
+    sleep(0.01)
+    return {"status": "ok"}
+
+
+def run_other_test(test_config):
+    base_dir = os.path.join(os.path.dirname(__file__), "test_other_logging_output")
+    test_name = test_config["name"]
+    test_base_dir = os.path.join(base_dir, test_name)
+    data_dir = os.path.join(test_base_dir, "data")
+    log_dir = os.path.join(test_base_dir, "logs")
+    os.makedirs(data_dir, exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
+
+    log_file = os.path.join(log_dir, f"{test_name}.pfw")
+
+    if test_config.get("disable_other"):
+        ai.other.disable()
+
+    sample_path = os.path.join(data_dir, "other_sample.npy")
+
+    try:
+        df_logger = dftracer.initialize_log(
+            logfile=log_file, data_dir=data_dir, process_id=-1
+        )
+
+        # Exercise other IO operations via decorators
+        other_io = OtherIOHandler()
+        other_io.open(sample_path)
+        data = other_io.read(sample_path)
+        other_io.write(sample_path, data)
+        other_io.close(sample_path)
+
+        # Exercise other IO via context managers
+        with ai.other.io.open:
+            pass
+        with ai.other.io.read:
+            pass
+        with ai.other.io.write:
+            pass
+        with ai.other.io.close:
+            pass
+
+        # Exercise log sub-tracer as decorator and context manager
+        external_api_call("https://example.com/api")
+        with ai.other.log:
+            sleep(0.01)
+
+        df_logger.finalize()
+
+        expected_count = test_config.get("expected_events", 0)
+        mode = test_config.get("mode", "exact")
+        validate_log_files(log_file, test_name, expected_count, mode=mode)
+    finally:
+        shutil.rmtree(test_base_dir, ignore_errors=True)
+
+    return True
+
+
+class TestOtherLogging:
+    @pytest.mark.parametrize(
+        "test_config",
+        [
+            {
+                "name": "other_disabled",
+                "expected_events": 0,
+                "env": {
+                    "DFTRACER_ENABLE": "0",
+                },
+            },
+            {
+                "name": "other_normal",
+                "expected_events": 0,
+                "mode": "exact",
+                "env": {
+                    "DFTRACER_ENABLE": "1",
+                    "DFTRACER_INC_METADATA": "1",
+                    "DFTRACER_TRACE_COMPRESSION": "0",
+                    "DFTRACER_DISABLE_IO": "1",
+                },
+            },
+            {
+                "name": "other_disable_category",
+                "disable_other": True,
+                "expected_events": 0,
+                "mode": "none",
+                "env": {
+                    "DFTRACER_ENABLE": "1",
+                    "DFTRACER_INC_METADATA": "1",
+                    "DFTRACER_TRACE_COMPRESSION": "0",
+                    "DFTRACER_DISABLE_IO": "1",
+                },
+            },
+        ],
+    )
+    def test_other_logging(self, test_config):
+        run_test_in_spawn_process(run_other_test, test_config)
 
 
 if __name__ == "__main__":

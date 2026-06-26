@@ -18,6 +18,7 @@ from typing import (
     Tuple,
     TypeVar,
     Union,
+    cast,
     overload,
 )
 
@@ -670,7 +671,7 @@ class dft_fn:
         def _decorator(f: Callable[P, R]) -> Callable[P, R]:
             # Extract actual function if we received a staticmethod object
             if isinstance(f, staticmethod):
-                actual_func = f.__func__
+                actual_func = cast(Callable[P, R], f.__func__)
             else:
                 actual_func = f
 

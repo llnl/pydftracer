@@ -35,6 +35,7 @@ The ``ai`` module provides decorators and context managers for tracing common AI
 - **Communication**: Distributed training operations (all_reduce, etc.)
 - **Checkpointing**: Model save/load operations
 - **Pipeline**: Training/validation/test loops
+- **Other**: Any I/O or logging activity that does not fit a standard AI/ML category
 
 Basic Setup
 -----------
@@ -237,6 +238,162 @@ Model Checkpoints
    # ... training ...
    checkpoint.save({"model": model.state_dict()})
 
+I/O Operations
+--------------
+
+The ``io`` sub-tracer is available on both ``data`` and ``checkpoint`` to annotate
+the four fundamental I/O phases of any data object lifecycle:
+
+- **open** — opening or loading a data object (e.g. opening a file, loading a dataset)
+- **read** — reading data from an already-open object
+- **write** — writing data into an object
+- **close** — closing or deleting a data object
+
+This lets you precisely attribute time to each I/O phase rather than lumping it
+into a coarser ``data.item`` or ``checkpoint.capture`` span.
+
+Tracing Data I/O
+~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from dftracer.python import ai
+
+   class DatasetReader:
+       @ai.data.io.open
+       def open(self, path: str):
+           self._file = open(path, "rb")
+
+       @ai.data.io.read
+       def read(self, n: int):
+           return self._file.read(n)
+
+       @ai.data.io.close
+       def close(self):
+           self._file.close()
+
+   # Or with context managers
+   def load_sample(path: str):
+       with ai.data.io.open:
+           fh = open(path, "rb")
+       with ai.data.io.read:
+           data = fh.read()
+       with ai.data.io.close:
+           fh.close()
+       return data
+
+Tracing Checkpoint I/O
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from dftracer.python import ai
+   import torch
+
+   class CheckpointManager:
+       @ai.checkpoint.io.open
+       def _open(self, path: str):
+           return open(path, "rb")
+
+       @ai.checkpoint.io.read
+       def load(self, path: str):
+           with self._open(path) as f:
+               return torch.load(f)
+
+       @ai.checkpoint.io.write
+       def save(self, state: dict, path: str):
+           torch.save(state, path)
+
+       @ai.checkpoint.io.close
+       def delete(self, path: str):
+           import os
+           os.remove(path)
+
+Combined with capture/restart context:
+
+.. code-block:: python
+
+   from dftracer.python import ai
+
+   def save_checkpoint(model, path: str):
+       with ai.checkpoint.capture:
+           with ai.checkpoint.io.open:
+               f = open(path, "wb")
+           with ai.checkpoint.io.write:
+               torch.save(model.state_dict(), f)
+           with ai.checkpoint.io.close:
+               f.close()
+
+   def load_checkpoint(path: str):
+       with ai.checkpoint.restart:
+           with ai.checkpoint.io.open:
+               f = open(path, "rb")
+           with ai.checkpoint.io.read:
+               state = torch.load(f)
+           with ai.checkpoint.io.close:
+               f.close()
+       return state
+
+Other Operations
+----------------
+
+Use the ``other`` category to annotate any I/O or function call that does not belong to a standard
+AI/ML category — for example, writing application logs, calling an external REST API, reading
+configuration files, or any ad-hoc file access outside the data pipeline.
+
+Tracing Other I/O
+~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from dftracer.python import ai
+
+   class ConfigReader:
+       @ai.other.io.open
+       def open(self, path: str):
+           self._f = open(path, "r")
+
+       @ai.other.io.read
+       def read(self):
+           return self._f.read()
+
+       @ai.other.io.close
+       def close(self):
+           self._f.close()
+
+   # Or with context managers
+   with ai.other.io.open:
+       f = open("config.json", "r")
+   with ai.other.io.read:
+       cfg = f.read()
+   with ai.other.io.close:
+       f.close()
+
+Tracing Log / API Calls
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use ``ai.other.log`` to annotate logging writes, metric emissions, or external API calls:
+
+.. code-block:: python
+
+   from dftracer.python import ai
+
+   @ai.other.log
+   def emit_metric(name: str, value: float):
+       # Write to external monitoring system
+       requests.post("https://metrics.example.com", json={name: value})
+
+   # Or as a context manager
+   with ai.other.log:
+       logger.info("Training step complete")
+
+   # Or derive a named sub-tracer
+   api_call = ai.other.log.derive(name="rest_api")
+
+   @api_call
+   def fetch_config(url: str):
+       return requests.get(url).json()
+
 Training Pipeline
 -----------------
 
@@ -331,6 +488,7 @@ You can selectively disable tracing for specific AI categories programmatically:
    ai.compute.disable()
    ai.comm.disable()
    ai.checkpoint.disable()
+   ai.other.disable()
 
 AI/DL Logging Conventions
 --------------------------
@@ -367,6 +525,22 @@ codebase the same way you would use ``dft_fn`` directly.
      - Item
      - ``ai.data.item``
      - Per-item transformation or loading
+   * -
+     - IO: Open
+     - ``ai.data.io.open``
+     - Open or load a data object
+   * -
+     - IO: Read
+     - ``ai.data.io.read``
+     - Read data from an open object
+   * -
+     - IO: Write
+     - ``ai.data.io.write``
+     - Write data to an object
+   * -
+     - IO: Close
+     - ``ai.data.io.close``
+     - Close or delete a data object
    * - DataLoader
      - Fetch
      - ``ai.dataloader.fetch``
@@ -427,6 +601,22 @@ codebase the same way you would use ``dft_fn`` directly.
      - Restart
      - ``ai.checkpoint.restart``
      - Restart from a model checkpoint
+   * -
+     - IO: Open
+     - ``ai.checkpoint.io.open``
+     - Open or load a checkpoint file
+   * -
+     - IO: Read
+     - ``ai.checkpoint.io.read``
+     - Read checkpoint data from an open file
+   * -
+     - IO: Write
+     - ``ai.checkpoint.io.write``
+     - Write checkpoint data to a file
+   * -
+     - IO: Close
+     - ``ai.checkpoint.io.close``
+     - Close or delete a checkpoint file
    * - Pipeline
      - Epoch
      - ``ai.pipeline.epoch``
@@ -443,6 +633,26 @@ codebase the same way you would use ``dft_fn`` directly.
      - Test
      - ``ai.pipeline.test``
      - Testing or inference phase
+   * - Other
+     - Log
+     - ``ai.other.log``
+     - Logging writes, metric emissions, or external API calls
+   * -
+     - IO: Open
+     - ``ai.other.io.open``
+     - Open a file or resource outside the data pipeline
+   * -
+     - IO: Read
+     - ``ai.other.io.read``
+     - Read from an open resource
+   * -
+     - IO: Write
+     - ``ai.other.io.write``
+     - Write to a resource
+   * -
+     - IO: Close
+     - ``ai.other.io.close``
+     - Close or release a resource
 
 Flexible API Styles
 -------------------
