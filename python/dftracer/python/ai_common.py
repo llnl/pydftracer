@@ -579,6 +579,63 @@ class CheckpointEvent(StringEnum):
     RESTART = auto()
 
 
+class IOEvent(StringEnum):
+    OPEN = auto()
+    READ = auto()
+    WRITE = auto()
+    CLOSE = auto()
+
+
+class IO(DFTracerAI):
+    """Tracer for I/O operations on a data object (open, read, write, close).
+
+    Accessible as ``data.io`` or ``checkpoint.io``. Each operation maps to a
+    dedicated child tracer so that load/open, read, write, and delete/close
+    phases are captured as separate, named events in the trace.
+
+    Events:
+        open  -- opening or loading a data object (e.g. file open, dataset load)
+        read  -- reading data from an already-open object
+        write -- writing data to an object
+        close -- closing or deleting a data object
+    """
+
+    open: DFTracerAI
+    read: DFTracerAI
+    write: DFTracerAI
+    close: DFTracerAI
+
+    def __init__(
+        self,
+        *,
+        cat: str,
+        parent_name: str,
+        epoch: Optional[int] = None,
+        step: Optional[int] = None,
+        image_idx: Optional[int] = None,
+        image_size: Optional[Any] = None,
+        enable: bool = True,
+    ):
+        io_name = f"{parent_name}{CTX_SEPARATOR}io"
+        super().__init__(
+            cat=cat,
+            name=io_name,
+            epoch=epoch,
+            step=step,
+            image_idx=image_idx,
+            image_size=image_size,
+            enable=enable,
+        )
+        self.create_children(
+            {
+                "open": f"{io_name}{CTX_SEPARATOR}{IOEvent.OPEN}",
+                "read": f"{io_name}{CTX_SEPARATOR}{IOEvent.READ}",
+                "write": f"{io_name}{CTX_SEPARATOR}{IOEvent.WRITE}",
+                "close": f"{io_name}{CTX_SEPARATOR}{IOEvent.CLOSE}",
+            }
+        )
+
+
 class Compute(DFTracerAI):
     forward: DFTracerAI
     backward: DFTracerAI
@@ -614,6 +671,7 @@ class Compute(DFTracerAI):
 class Data(DFTracerAI):
     preprocess: DFTracerAI
     item: DFTracerAI
+    io: IO
 
     def __init__(
         self,
@@ -638,6 +696,16 @@ class Data(DFTracerAI):
                 "item": DataEvent.ITEM,
             }
         )
+        self.io = IO(
+            cat=ProfileCategory.DATA,
+            parent_name=str(ProfileCategory.DATA),
+            epoch=epoch,
+            step=step,
+            image_idx=image_idx,
+            image_size=image_size,
+            enable=enable,
+        )
+        self._children["io"] = self.io
 
 
 class DataLoader(DFTracerAI):
@@ -744,6 +812,7 @@ class Device(DFTracerAI):
 class Checkpoint(DFTracerAI):
     capture: DFTracerAI
     restart: DFTracerAI
+    io: IO
 
     def __init__(
         self,
@@ -768,6 +837,16 @@ class Checkpoint(DFTracerAI):
                 "restart": CheckpointEvent.RESTART,
             }
         )
+        self.io = IO(
+            cat=ProfileCategory.CHECKPOINT,
+            parent_name=str(ProfileCategory.CHECKPOINT),
+            epoch=epoch,
+            step=step,
+            image_idx=image_idx,
+            image_size=image_size,
+            enable=enable,
+        )
+        self._children["io"] = self.io
 
 
 class Pipeline(DFTracerAI):

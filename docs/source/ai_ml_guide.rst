@@ -237,6 +237,102 @@ Model Checkpoints
    # ... training ...
    checkpoint.save({"model": model.state_dict()})
 
+I/O Operations
+--------------
+
+The ``io`` sub-tracer is available on both ``data`` and ``checkpoint`` to annotate
+the four fundamental I/O phases of any data object lifecycle:
+
+- **open** — opening or loading a data object (e.g. opening a file, loading a dataset)
+- **read** — reading data from an already-open object
+- **write** — writing data into an object
+- **close** — closing or deleting a data object
+
+This lets you precisely attribute time to each I/O phase rather than lumping it
+into a coarser ``data.item`` or ``checkpoint.capture`` span.
+
+Tracing Data I/O
+~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from dftracer.python import ai
+
+   class DatasetReader:
+       @ai.data.io.open
+       def open(self, path: str):
+           self._file = open(path, "rb")
+
+       @ai.data.io.read
+       def read(self, n: int):
+           return self._file.read(n)
+
+       @ai.data.io.close
+       def close(self):
+           self._file.close()
+
+   # Or with context managers
+   def load_sample(path: str):
+       with ai.data.io.open:
+           fh = open(path, "rb")
+       with ai.data.io.read:
+           data = fh.read()
+       with ai.data.io.close:
+           fh.close()
+       return data
+
+Tracing Checkpoint I/O
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from dftracer.python import ai
+   import torch
+
+   class CheckpointManager:
+       @ai.checkpoint.io.open
+       def _open(self, path: str):
+           return open(path, "rb")
+
+       @ai.checkpoint.io.read
+       def load(self, path: str):
+           with self._open(path) as f:
+               return torch.load(f)
+
+       @ai.checkpoint.io.write
+       def save(self, state: dict, path: str):
+           torch.save(state, path)
+
+       @ai.checkpoint.io.close
+       def delete(self, path: str):
+           import os
+           os.remove(path)
+
+Combined with capture/restart context:
+
+.. code-block:: python
+
+   from dftracer.python import ai
+
+   def save_checkpoint(model, path: str):
+       with ai.checkpoint.capture:
+           with ai.checkpoint.io.open:
+               f = open(path, "wb")
+           with ai.checkpoint.io.write:
+               torch.save(model.state_dict(), f)
+           with ai.checkpoint.io.close:
+               f.close()
+
+   def load_checkpoint(path: str):
+       with ai.checkpoint.restart:
+           with ai.checkpoint.io.open:
+               f = open(path, "rb")
+           with ai.checkpoint.io.read:
+               state = torch.load(f)
+           with ai.checkpoint.io.close:
+               f.close()
+       return state
+
 Training Pipeline
 -----------------
 
@@ -367,6 +463,22 @@ codebase the same way you would use ``dft_fn`` directly.
      - Item
      - ``ai.data.item``
      - Per-item transformation or loading
+   * -
+     - IO: Open
+     - ``ai.data.io.open``
+     - Open or load a data object
+   * -
+     - IO: Read
+     - ``ai.data.io.read``
+     - Read data from an open object
+   * -
+     - IO: Write
+     - ``ai.data.io.write``
+     - Write data to an object
+   * -
+     - IO: Close
+     - ``ai.data.io.close``
+     - Close or delete a data object
    * - DataLoader
      - Fetch
      - ``ai.dataloader.fetch``
@@ -427,6 +539,22 @@ codebase the same way you would use ``dft_fn`` directly.
      - Restart
      - ``ai.checkpoint.restart``
      - Restart from a model checkpoint
+   * -
+     - IO: Open
+     - ``ai.checkpoint.io.open``
+     - Open or load a checkpoint file
+   * -
+     - IO: Read
+     - ``ai.checkpoint.io.read``
+     - Read checkpoint data from an open file
+   * -
+     - IO: Write
+     - ``ai.checkpoint.io.write``
+     - Write checkpoint data to a file
+   * -
+     - IO: Close
+     - ``ai.checkpoint.io.close``
+     - Close or delete a checkpoint file
    * - Pipeline
      - Epoch
      - ``ai.pipeline.epoch``
