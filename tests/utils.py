@@ -210,9 +210,10 @@ def validate_log_files(log_file, test_name, expected_count=0, mode="exact"):
         test_name: Name of the test (for error messages)
         expected_count: Expected number of events (0 means just check > 5 for "exact" mode,
                        or minimum count for "at_least" mode)
-        mode: Validation mode - "exact" (default) or "at_least"
+        mode: Validation mode - "exact" (default), "at_least", or "none"
               - "exact": Event count must exactly match expected_count (or > 5 if expected_count=0)
               - "at_least": Event count must be >= expected_count
+              - "none": Event count must be 0
 
     Returns:
         Tuple of (event_count, cpp_library_available)
@@ -279,6 +280,10 @@ def validate_log_files(log_file, test_name, expected_count=0, mode="exact"):
         assert event_count == 0, (
             f"Expected 0 events when C++ library not available but got {event_count} for test {test_name}"
         )
+    elif mode == "none":
+        assert event_count == 0, (
+            f"Expected 0 events but got {event_count} for test {test_name}"
+        )
     elif mode == "at_least":
         # For "at_least" mode, event_count must be >= expected_count
         if expected_count > 0:
@@ -300,7 +305,9 @@ def validate_log_files(log_file, test_name, expected_count=0, mode="exact"):
                 f"Expected some events (> 5) but got {event_count} for test {test_name}"
             )
     else:
-        raise ValueError(f"Invalid mode '{mode}'. Must be 'exact' or 'at_least'")
+        raise ValueError(
+            f"Invalid mode '{mode}'. Must be 'exact', 'at_least', or 'none'"
+        )
 
     return event_count, cpp_library_available
 

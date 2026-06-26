@@ -53,7 +53,7 @@ format-check:
 	ruff format --check .
 
 type-check:
-	mypy python/dftracer/python --ignore-missing-imports
+	MYPYPATH=python mypy --explicit-package-bases python/dftracer/python --ignore-missing-imports
 
 clean:
 	rm -rf build/
@@ -78,6 +78,6 @@ test-ci-quick: ## Run quick CI checks without coverage
 	@echo "Running linting and type checks..."
 	ruff check .
 	ruff format --check .
-	mypy python/dftracer/python --ignore-missing-imports
+	MYPYPATH=python mypy --explicit-package-bases python/dftracer/python --ignore-missing-imports
 	@echo ""
 	@echo "Quick checks passed! ✅"

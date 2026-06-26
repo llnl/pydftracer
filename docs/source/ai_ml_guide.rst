@@ -35,6 +35,7 @@ The ``ai`` module provides decorators and context managers for tracing common AI
 - **Communication**: Distributed training operations (all_reduce, etc.)
 - **Checkpointing**: Model save/load operations
 - **Pipeline**: Training/validation/test loops
+- **Other**: Any I/O or logging activity that does not fit a standard AI/ML category
 
 Basic Setup
 -----------
@@ -333,6 +334,66 @@ Combined with capture/restart context:
                f.close()
        return state
 
+Other Operations
+----------------
+
+Use the ``other`` category to annotate any I/O or function call that does not belong to a standard
+AI/ML category — for example, writing application logs, calling an external REST API, reading
+configuration files, or any ad-hoc file access outside the data pipeline.
+
+Tracing Other I/O
+~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from dftracer.python import ai
+
+   class ConfigReader:
+       @ai.other.io.open
+       def open(self, path: str):
+           self._f = open(path, "r")
+
+       @ai.other.io.read
+       def read(self):
+           return self._f.read()
+
+       @ai.other.io.close
+       def close(self):
+           self._f.close()
+
+   # Or with context managers
+   with ai.other.io.open:
+       f = open("config.json", "r")
+   with ai.other.io.read:
+       cfg = f.read()
+   with ai.other.io.close:
+       f.close()
+
+Tracing Log / API Calls
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use ``ai.other.log`` to annotate logging writes, metric emissions, or external API calls:
+
+.. code-block:: python
+
+   from dftracer.python import ai
+
+   @ai.other.log
+   def emit_metric(name: str, value: float):
+       # Write to external monitoring system
+       requests.post("https://metrics.example.com", json={name: value})
+
+   # Or as a context manager
+   with ai.other.log:
+       logger.info("Training step complete")
+
+   # Or derive a named sub-tracer
+   api_call = ai.other.log.derive(name="rest_api")
+
+   @api_call
+   def fetch_config(url: str):
+       return requests.get(url).json()
+
 Training Pipeline
 -----------------
 
@@ -427,6 +488,7 @@ You can selectively disable tracing for specific AI categories programmatically:
    ai.compute.disable()
    ai.comm.disable()
    ai.checkpoint.disable()
+   ai.other.disable()
 
 AI/DL Logging Conventions
 --------------------------
@@ -571,6 +633,26 @@ codebase the same way you would use ``dft_fn`` directly.
      - Test
      - ``ai.pipeline.test``
      - Testing or inference phase
+   * - Other
+     - Log
+     - ``ai.other.log``
+     - Logging writes, metric emissions, or external API calls
+   * -
+     - IO: Open
+     - ``ai.other.io.open``
+     - Open a file or resource outside the data pipeline
+   * -
+     - IO: Read
+     - ``ai.other.io.read``
+     - Read from an open resource
+   * -
+     - IO: Write
+     - ``ai.other.io.write``
+     - Write to a resource
+   * -
+     - IO: Close
+     - ``ai.other.io.close``
+     - Close or release a resource
 
 Flexible API Styles
 -------------------
